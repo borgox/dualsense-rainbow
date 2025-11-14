@@ -39,14 +39,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libudev-dev pkg-config
 
-      - name: Build Linux (musl static)
+      - name: Build Linux (glibc)
         if: runner.os == 'Linux'
         run: |
-          rustup target add x86_64-unknown-linux-musl
-          cargo build --release --target x86_64-unknown-linux-musl
+          cargo build --release
           mkdir -p artifacts/linux
-          cp target/x86_64-unknown-linux-musl/release/dualsense-rainbow artifacts/linux/
-          strip artifacts/linux/dualsense-rainbow
+          cp target/release/testDualsense artifacts/linux/dualsense-rainbow
 
       - name: Build macOS (universal)
         if: runner.os == 'macOS'
