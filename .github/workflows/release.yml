@@ -1,0 +1,74 @@
+name: Build Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            x86_64-pc-windows-msvc
+            x86_64-unknown-linux-musl
+            x86_64-apple-darwin
+            aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev pkg-config
+
+      - name: Build Linux (musl)
+        if: runner.os == 'Linux'
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --target x86_64-unknown-linux-musl
+          mkdir -p artifacts/linux
+          cp target/x86_64-unknown-linux-musl/release/testDualsense artifacts/linux/dualsense-rainbow
+          strip artifacts/linux/dualsense-rainbow
+
+      - name: Build macOS (universal)
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+          mkdir -p artifacts/macos
+          lipo -create -output artifacts/macos/dualsense-rainbow \
+            target/x86_64-apple-darwin/release/testDualsense \
+            target/aarch64-apple-darwin/release/testDualsense
+          strip artifacts/macos/dualsense-rainbow
+
+      - name: Build Windows
+        if: runner.os == 'Windows'
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          mkdir artifacts\windows
+          Copy-Item target\x86_64-pc-windows-msvc\release\testDualsense.exe artifacts\windows\dualsense-rainbow.exe
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ runner.os }}-binaries
+          path: artifacts/**/*
