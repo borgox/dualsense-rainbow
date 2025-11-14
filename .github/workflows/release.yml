@@ -44,7 +44,7 @@ jobs:
         run: |
           cargo build --release
           mkdir -p artifacts/linux
-          cp target/release/testDualsense artifacts/linux/dualsense-rainbow
+          cp target/release/dualsense-rainbow artifacts/linux/
 
       - name: Build macOS (universal)
         if: runner.os == 'macOS'
