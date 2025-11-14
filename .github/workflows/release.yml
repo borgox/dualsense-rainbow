@@ -3,7 +3,7 @@ name: Build and Release
 on:
   push:
     tags:
-      - 'v*'  # Trigger su tag versioni tipo v1.0.0
+      - 'v*'  # Trigger su tag tipo v1.0.0
 
 jobs:
   build:
@@ -36,6 +36,8 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       # ------------------------
       # Build Linux
@@ -63,10 +65,18 @@ jobs:
           else
             echo "exists=false" >> $GITHUB_OUTPUT
             echo "Binary missing!"
+            exit 1
           fi
 
+      - name: Upload Linux Binary
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dualsense-rainbow-linux
+          path: artifacts/linux/dualsense-rainbow
+
       # ------------------------
-      # Build macOS
+      # Build macOS (universal)
       # ------------------------
       - name: Build macOS (universal)
         if: runner.os == 'macOS'
@@ -90,7 +100,15 @@ jobs:
           else
             echo "exists=false" >> $GITHUB_OUTPUT
             echo "Binary missing!"
+            exit 1
           fi
+
+      - name: Upload macOS Binary
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dualsense-rainbow-macos
+          path: artifacts/macos/dualsense-rainbow
 
       # ------------------------
       # Build Windows
@@ -99,7 +117,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           cargo build --release
-          mkdir -p artifacts/windows
+          mkdir -p artifacts\windows
           Copy-Item target\release\dualsense-rainbow.exe artifacts\windows\
 
       - name: Check Windows binary
@@ -112,36 +130,64 @@ jobs:
           } else {
             Write-Output "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
             Write-Error "Binary missing!"
+            exit 1
           }
 
-      # ------------------------
-      # Upload artifacts per OS
-      # ------------------------
-      - name: Upload Artifacts
+      - name: Upload Windows Binary
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}-binaries
-          path: artifacts/**/*
+          name: dualsense-rainbow-windows
+          path: artifacts/windows/dualsense-rainbow.exe
 
+
+  # ------------------------
+  # Release Job
+  # ------------------------
   release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # Necessario per creare release e upload asset
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Artifacts
+      - name: Download All Binaries
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: downloaded_artifacts
 
-      - name: Create Release
+      - name: Organize Release Assets
+        run: |
+          mkdir -p release_assets
+          
+          # Copia e rinomina per chiarezza
+          cp downloaded_artifacts/dualsense-rainbow-linux/dualsense-rainbow \
+             release_assets/dualsense-rainbow-linux
+          
+          cp downloaded_artifacts/dualsense-rainbow-macos/dualsense-rainbow \
+             release_assets/dualsense-rainbow-macos
+          
+          cp downloaded_artifacts/dualsense-rainbow-windows/dualsense-rainbow.exe \
+             release_assets/dualsense-rainbow-windows.exe
+
+      - name: Debug - List files
+        run: |
+          echo "=== Contenuto release_assets ==="
+          ls -la release_assets/
+          echo "================================"
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           generate_release_notes: true
+          draft: false
+          prerelease: false
           files: |
-            artifacts/linux/dualsense-rainbow
-            artifacts/macos/dualsense-rainbow
-            artifacts/windows/dualsense-rainbow.exe
+            release_assets/dualsense-rainbow-linux
+            release_assets/dualsense-rainbow-macos
+            release_assets/dualsense-rainbow-windows.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
