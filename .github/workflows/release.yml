@@ -1,9 +1,9 @@
-name: Build Release
+name: Build and Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'  # Trigger su tag versioni tipo v1.0.0
 
 jobs:
   build:
@@ -11,6 +11,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    outputs:
+      linux-bin: ${{ steps.check-linux.outputs.exists }}
+      macos-bin: ${{ steps.check-macos.outputs.exists }}
+      windows-bin: ${{ steps.check-windows.outputs.exists }}
 
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +24,7 @@ jobs:
         with:
           targets: |
             x86_64-pc-windows-msvc
-            x86_64-unknown-linux-musl
+            x86_64-unknown-linux-gnu
             x86_64-apple-darwin
             aarch64-apple-darwin
 
@@ -33,19 +37,37 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      # ------------------------
+      # Build Linux
+      # ------------------------
       - name: Install Linux deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev pkg-config
+          sudo apt-get install -y pkg-config libudev-dev
 
-      - name: Build Linux (glibc)
+      - name: Build Linux
         if: runner.os == 'Linux'
         run: |
           cargo build --release
           mkdir -p artifacts/linux
           cp target/release/dualsense-rainbow artifacts/linux/
 
+      - name: Check Linux binary
+        if: runner.os == 'Linux'
+        id: check-linux
+        run: |
+          if [ -f artifacts/linux/dualsense-rainbow ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            file artifacts/linux/dualsense-rainbow
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Binary missing!"
+          fi
+
+      # ------------------------
+      # Build macOS
+      # ------------------------
       - name: Build macOS (universal)
         if: runner.os == 'macOS'
         run: |
@@ -58,15 +80,70 @@ jobs:
             target/aarch64-apple-darwin/release/dualsense-rainbow
           strip artifacts/macos/dualsense-rainbow
 
+      - name: Check macOS binary
+        if: runner.os == 'macOS'
+        id: check-macos
+        run: |
+          if [ -f artifacts/macos/dualsense-rainbow ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            file artifacts/macos/dualsense-rainbow
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Binary missing!"
+          fi
+
+      # ------------------------
+      # Build Windows
+      # ------------------------
       - name: Build Windows
         if: runner.os == 'Windows'
         run: |
           cargo build --release
-          mkdir artifacts\windows
+          mkdir -p artifacts/windows
           Copy-Item target\release\dualsense-rainbow.exe artifacts\windows\
 
+      - name: Check Windows binary
+        if: runner.os == 'Windows'
+        id: check-windows
+        run: |
+          if (Test-Path artifacts\windows\dualsense-rainbow.exe) {
+            Write-Output "exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+            Get-Item artifacts\windows\dualsense-rainbow.exe
+          } else {
+            Write-Output "exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
+            Write-Error "Binary missing!"
+          }
+
+      # ------------------------
+      # Upload artifacts per OS
+      # ------------------------
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ runner.os }}-binaries
           path: artifacts/**/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
